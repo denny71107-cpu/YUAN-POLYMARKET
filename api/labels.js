@@ -15,87 +15,85 @@ const SEED = {
   '0xf89d7b9c864f589bbf53a82105107622b35eaa40': { exchange:'Bybit', region:'海外', tags:'Bybit. DepositAndWithdraw_1', source:'seed' }
 };
 
-const CHAIN_NAME = {
-  1:'ethereum', 10:'optimism', 56:'bsc', 137:'polygon', 8453:'base', 42161:'arbitrum', 43114:'avalanche'
+const CHAIN_NAME = {1:'ethereum',10:'optimism',56:'bsc',137:'polygon',8453:'base',42161:'arbitrum',43114:'avalanche'};
+const EXPLORER = {
+  1:'https://etherscan.io/address/',
+  10:'https://optimistic.etherscan.io/address/',
+  56:'https://bscscan.com/address/',
+  137:'https://polygonscan.com/address/',
+  8453:'https://basescan.org/address/',
+  42161:'https://arbiscan.io/address/',
+  43114:'https://snowtrace.io/address/'
 };
 
+function decodeHtml(s=''){return String(s).replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/\s+/g,' ').trim();}
 function normExchange(text='') {
-  const s = String(text).toLowerCase();
-  if (s.includes('maicoin') || s.includes('max exchange')) return 'MaiCoin';
-  if (s.includes('bitopro')) return 'BitoPro';
-  if (s.includes('binance')) return 'Binance';
-  if (s.includes('coinbase')) return 'Coinbase';
-  if (s.includes('okx')) return 'OKX';
-  if (s.includes('bybit')) return 'Bybit';
-  if (s.includes('kraken')) return 'Kraken';
-  if (s.includes('gate.io') || /\bgate\b/.test(s)) return 'Gate';
-  if (s.includes('mexc')) return 'MEXC';
-  if (s.includes('kucoin')) return 'KuCoin';
-  if (s.includes('bitget')) return 'Bitget';
-  if (s.includes('crypto.com')) return 'Crypto.com';
+  const s=String(text).toLowerCase();
+  if(s.includes('maicoin')||s.includes('max exchange'))return 'MaiCoin';
+  if(s.includes('bitopro'))return 'BitoPro';
+  if(s.includes('binance'))return 'Binance';
+  if(s.includes('coinbase'))return 'Coinbase';
+  if(s.includes('okx'))return 'OKX';
+  if(s.includes('bybit'))return 'Bybit';
+  if(s.includes('kraken'))return 'Kraken';
+  if(s.includes('gate.io')||/\bgate\b/.test(s))return 'Gate';
+  if(s.includes('mexc'))return 'MEXC';
+  if(s.includes('kucoin'))return 'KuCoin';
+  if(s.includes('bitget'))return 'Bitget';
+  if(s.includes('crypto.com'))return 'Crypto.com';
+  if(s.includes('htx')||s.includes('huobi'))return 'HTX';
+  if(s.includes('bitfinex'))return 'Bitfinex';
+  if(s.includes('upbit'))return 'Upbit';
+  if(s.includes('bitstamp'))return 'Bitstamp';
   return '';
 }
+function regionFor(exchange){return ['MaiCoin','BitoPro'].includes(exchange)?'台灣':(exchange?'海外':'');}
 
-function regionFor(exchange) {
-  return ['MaiCoin','BitoPro'].includes(exchange) ? '台灣' : (exchange ? '海外' : '');
+async function explorerNameTag(address,chainId){
+  const base=EXPLORER[Number(chainId)]; if(!base)return null;
+  try{
+    const r=await fetch(base+encodeURIComponent(address),{headers:{'accept':'text/html','user-agent':'Mozilla/5.0 (compatible; YUAN-Polymarket/1.0)'},cache:'no-store'});
+    if(!r.ok)return null;
+    const html=await r.text();
+    const title=decodeHtml((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)||[])[1]||'');
+    const og=decodeHtml((html.match(/<meta[^>]+(?:property|name)=["'](?:og:title|twitter:title)["'][^>]+content=["']([^"']+)["']/i)||[])[1]||'');
+    const candidate=(title||og).replace(/\s*\|\s*Address:.*$/i,'').replace(/^Address:\s*0x[a-fA-F0-9]{40}\s*$/,'').trim();
+    const ex=normExchange(candidate);
+    if(!ex)return null;
+    return {exchange:ex,region:regionFor(ex),tags:candidate||title,source:'public-explorer'};
+  }catch{return null;}
 }
 
-async function walletLabels(address, chainId) {
-  const key = process.env.WALLET_LABELS_API_KEY;
-  if (!key) return null;
-  const chain = CHAIN_NAME[Number(chainId)] || 'ethereum';
-  const url = `https://api.walletlabels.xyz/api/${encodeURIComponent(chain)}/label/${encodeURIComponent(address)}?apikey=${encodeURIComponent(key)}&limit=20`;
-  const r = await fetch(url, { headers:{'accept':'application/json'}, cache:'no-store' });
-  if (!r.ok) return null;
-  const j = await r.json();
-  const rows = Array.isArray(j?.data) ? j.data : [];
-  for (const x of rows) {
-    const blob = [x.address_name,x.label_type,x.label_subtype,x.label].filter(Boolean).join(' | ');
-    const ex = normExchange(blob);
-    if (ex || String(x.label_type||'').toLowerCase()==='exchange') {
-      return { exchange:ex || x.address_name || x.label || 'Exchange', region:regionFor(ex), tags:blob, source:'walletlabels' };
-    }
-  }
+async function walletLabels(address,chainId){
+  const key=process.env.WALLET_LABELS_API_KEY;if(!key)return null;
+  const chain=CHAIN_NAME[Number(chainId)]||'ethereum';
+  const url=`https://api.walletlabels.xyz/api/${encodeURIComponent(chain)}/label/${encodeURIComponent(address)}?apikey=${encodeURIComponent(key)}&limit=20`;
+  const r=await fetch(url,{headers:{accept:'application/json'},cache:'no-store'});if(!r.ok)return null;
+  const j=await r.json(),rows=Array.isArray(j?.data)?j.data:[];
+  for(const x of rows){const blob=[x.address_name,x.label_type,x.label_subtype,x.label].filter(Boolean).join(' | '),ex=normExchange(blob);if(ex||String(x.label_type||'').toLowerCase()==='exchange')return{exchange:ex||x.address_name||x.label||'Exchange',region:regionFor(ex),tags:blob,source:'walletlabels'};}
   return null;
 }
 
-async function etherscan(address, chainId) {
-  const key = process.env.ETHERSCAN_API_KEY;
-  if (!key) return null;
-  const u = new URL('https://api.etherscan.io/v2/api');
-  u.searchParams.set('chainid', String(chainId || 1));
-  u.searchParams.set('module','nametag');
-  u.searchParams.set('action','getaddresstag');
-  u.searchParams.set('address',address);
-  u.searchParams.set('apikey',key);
-  const r = await fetch(u, { headers:{'accept':'application/json'}, cache:'no-store' });
-  if (!r.ok) return null;
-  const j = await r.json();
-  const rows = Array.isArray(j?.result) ? j.result : [];
-  for (const x of rows) {
-    const blob = [x.nametag, ...(Array.isArray(x.labels)?x.labels:[]), x.shortdescription].filter(Boolean).join(' | ');
-    const ex = normExchange(blob);
-    if (ex || (Array.isArray(x.labels_slug) && x.labels_slug.includes('exchange'))) {
-      return { exchange:ex || x.nametag || 'Exchange', region:regionFor(ex), tags:blob, source:'etherscan' };
-    }
-  }
+async function etherscan(address,chainId){
+  const key=process.env.ETHERSCAN_API_KEY;if(!key)return null;
+  const u=new URL('https://api.etherscan.io/v2/api');u.searchParams.set('chainid',String(chainId||1));u.searchParams.set('module','nametag');u.searchParams.set('action','getaddresstag');u.searchParams.set('address',address);u.searchParams.set('apikey',key);
+  const r=await fetch(u,{headers:{accept:'application/json'},cache:'no-store'});if(!r.ok)return null;
+  const j=await r.json(),rows=Array.isArray(j?.result)?j.result:[];
+  for(const x of rows){const blob=[x.nametag,...(Array.isArray(x.labels)?x.labels:[]),x.shortdescription].filter(Boolean).join(' | '),ex=normExchange(blob);if(ex||(Array.isArray(x.labels_slug)&&x.labels_slug.includes('exchange')))return{exchange:ex||x.nametag||'Exchange',region:regionFor(ex),tags:blob,source:'etherscan-api'};}
   return null;
 }
 
-export default async function handler(req,res) {
-  if (req.method !== 'GET') return res.status(405).json({error:'Method not allowed'});
-  const address = String(req.query?.address || '').trim().toLowerCase();
-  const chainId = Number(req.query?.chainId || 1);
-  if (!/^0x[a-f0-9]{40}$/.test(address)) return res.status(400).json({error:'Invalid address'});
-
+export default async function handler(req,res){
+  if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'});
+  const address=String(req.query?.address||'').trim().toLowerCase(),chainId=Number(req.query?.chainId||1);
+  if(!/^0x[a-f0-9]{40}$/.test(address))return res.status(400).json({error:'Invalid address'});
+  const providers={seed:true,explorer:Boolean(EXPLORER[chainId]),walletlabels:Boolean(process.env.WALLET_LABELS_API_KEY),etherscan:Boolean(process.env.ETHERSCAN_API_KEY)};
   res.setHeader('Cache-Control','s-maxage=86400, stale-while-revalidate=604800');
-  if (SEED[address]) return res.status(200).json({found:true, label:{address,...SEED[address]}, providers:{walletlabels:Boolean(process.env.WALLET_LABELS_API_KEY), etherscan:Boolean(process.env.ETHERSCAN_API_KEY)}});
-
-  try {
-    let label = await walletLabels(address, chainId);
-    if (!label) label = await etherscan(address, chainId);
-    return res.status(200).json({found:Boolean(label), label:label?{address,...label}:null, providers:{walletlabels:Boolean(process.env.WALLET_LABELS_API_KEY), etherscan:Boolean(process.env.ETHERSCAN_API_KEY)}});
-  } catch (e) {
-    return res.status(200).json({found:false,label:null,error:e?.message||String(e),providers:{walletlabels:Boolean(process.env.WALLET_LABELS_API_KEY), etherscan:Boolean(process.env.ETHERSCAN_API_KEY)}});
-  }
+  if(SEED[address])return res.status(200).json({found:true,label:{address,...SEED[address]},providers});
+  try{
+    let label=await explorerNameTag(address,chainId);
+    if(!label)label=await walletLabels(address,chainId);
+    if(!label)label=await etherscan(address,chainId);
+    return res.status(200).json({found:Boolean(label),label:label?{address,...label}:null,providers});
+  }catch(e){return res.status(200).json({found:false,label:null,error:e?.message||String(e),providers});}
 }
