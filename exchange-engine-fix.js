@@ -16,8 +16,6 @@
     return failed.length;
   }
 
-  // The old engine calls Requests v2. Relay has deprecated v2, so transparently
-  // route those calls to Requests v3 and authenticate with the user's local key.
   function installV3Fetch() {
     if (window.__YUAN_RELAY_V3_FETCH__ === true) return;
     const nativeFetch = window.fetch.bind(window);
@@ -56,6 +54,24 @@
     };
   }
 
+  function addToRealCurrentRows(wallet) {
+    // exchange-engine.syncRows() reads the legacy page's lexical currentRows.
+    // Adding to that array makes the targeted test survive the next syncRows().
+    try {
+      if (typeof currentRows !== 'undefined' && Array.isArray(currentRows)) {
+        if (!currentRows.some(r => String(r['Proxy Wallet'] || '').toLowerCase() === wallet)) {
+          currentRows.push({'Proxy Wallet': wallet, '帳號名稱': wallet});
+        }
+        return true;
+      }
+    } catch (_) {}
+    if (!Array.isArray(window.__YUAN_CURRENT_ROWS__)) window.__YUAN_CURRENT_ROWS__ = [];
+    if (!window.__YUAN_CURRENT_ROWS__.some(r => String(r['Proxy Wallet'] || '').toLowerCase() === wallet)) {
+      window.__YUAN_CURRENT_ROWS__.push({'Proxy Wallet': wallet, '帳號名稱': wallet});
+    }
+    return true;
+  }
+
   function install() {
     installV3Fetch();
     const btn = document.getElementById('yeScan');
@@ -79,21 +95,18 @@
       test.id = 'yeTestWallet';
       test.className = 'secondary';
       test.textContent = '測試指定 Wallet';
-      test.title = '不要求該 Wallet 出現在目前成交表，直接測試 Relay';
+      test.title = '直接測試指定 Wallet，不要求它原本就在目前成交資料中';
       test.onclick = async () => {
         const wallet = prompt('輸入要測試的 Polymarket Wallet：', DEFAULT_WALLET);
         if (!wallet) return;
         const w = wallet.trim().toLowerCase();
         if (!validWallet(w)) return alert('Wallet 格式不正確。');
-        if (!Array.isArray(window.__YUAN_CURRENT_ROWS__)) window.__YUAN_CURRENT_ROWS__ = [];
-        if (!window.__YUAN_CURRENT_ROWS__.some(r => String(r['Proxy Wallet'] || '').toLowerCase() === w)) {
-          window.__YUAN_CURRENT_ROWS__.push({'Proxy Wallet': w, '帳號名稱': w});
-        }
+        addToRealCurrentRows(w);
         const cache = load();
         delete cache[w];
         save(cache);
-        const p = document.getElementById('yeProgress');
         if (p) p.textContent = `準備測試 ${wallet}…`;
+        // Let the engine see the injected Wallet, then run its normal scanner.
         btn.click();
       };
       wrap.appendChild(test);
