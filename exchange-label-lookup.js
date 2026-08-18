@@ -19,7 +19,7 @@
     const rows=[...table.querySelectorAll('tbody tr')]; if(!rows.length)return;
     box.dataset.labelsRunning='1';
     const labels=load();
-    let found=0,checked=0,providerConfigured=false;
+    let found=0,checked=0,publicProvider=false,externalProvider=false;
     for(const tr of rows){
       const td=tr.querySelectorAll('td'); if(td.length<9)continue;
       const chainId=chainIdFromName(td[1].textContent);
@@ -29,13 +29,14 @@
       if(labels[cp]){
         const lab=labels[cp]; labelCell.textContent=`${lab.exchange||'未知'}${lab.region?' / '+lab.region:''}`; labelCell.style.color='#166534'; found++; continue;
       }
-      labelCell.textContent='查詢中…'; labelCell.style.color='#64748b';
+      labelCell.textContent='自動辨識中…'; labelCell.style.color='#64748b';
       try{
         const j=await lookup(cp,chainId); checked++;
-        providerConfigured=providerConfigured||Boolean(j?.providers?.walletlabels||j?.providers?.etherscan);
+        publicProvider=publicProvider||Boolean(j?.providers?.explorer||j?.providers?.seed);
+        externalProvider=externalProvider||Boolean(j?.providers?.walletlabels||j?.providers?.etherscan);
         if(j?.found&&j?.label){
           labels[cp]={exchange:j.label.exchange||'未知',region:j.label.region||'',tags:j.label.tags||'',source:j.label.source||'api'}; save(labels);
-          labelCell.textContent=`${labels[cp].exchange}${labels[cp].region?' / '+labels[cp].region:''}`; labelCell.style.color='#166534'; labelCell.title=j.label.tags||j.label.source||''; found++;
+          labelCell.textContent=`${labels[cp].exchange}${labels[cp].region?' / '+labels[cp].region:''}`; labelCell.style.color='#166534'; labelCell.title=`來源：${j.label.source||'未知'}${j.label.tags?'｜'+j.label.tags:''}`; found++;
         } else {
           labelCell.textContent='待標記'; labelCell.style.color='#b45309';
         }
@@ -44,17 +45,14 @@
     }
     const head=box.firstElementChild;
     if(head){
-      const suffix=providerConfigured?`｜自動標記命中 ${found} 筆`:`｜自動標記：尚未設定外部 API Key`;
-      head.textContent=head.textContent.replace(/｜自動標記.*$/,'')+suffix;
+      const mode=externalProvider?'公開標籤＋外部 API':(publicProvider?'公開區塊鏈瀏覽器':'僅本機標籤');
+      const suffix=`｜自動辨識 ${checked} 個地址｜命中 ${found} 筆｜來源：${mode}`;
+      head.textContent=head.textContent.replace(/｜自動(?:標記|辨識).*$/,'')+suffix;
     }
     box.dataset.labelsRunning='0';
   }
 
-  const obs=new MutationObserver(()=>setTimeout(run,50));
-  function boot(){
-    const box=document.getElementById('yeResolvedTxBox');
-    if(box){obs.observe(box,{childList:true,subtree:true});run();}
-    else setTimeout(boot,500);
-  }
+  const obs=new MutationObserver(()=>setTimeout(run,80));
+  function boot(){const box=document.getElementById('yeResolvedTxBox');if(box){obs.observe(box,{childList:true,subtree:true});run();}else setTimeout(boot,500);}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
