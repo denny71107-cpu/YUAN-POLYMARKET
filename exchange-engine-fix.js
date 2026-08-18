@@ -5,19 +5,29 @@
   const DEFAULT_WALLET = '0x67948bEb458a078bA926709e42FF4c8C269FEC48';
   const load = () => { try { return JSON.parse(localStorage.getItem(LS_RELAY) || '{}'); } catch { return {}; } };
   const save = x => localStorage.setItem(LS_RELAY, JSON.stringify(x));
-  const isErrorEntry = x => !!(x && x.error && (!Array.isArray(x.records) || x.records.length === 0));
+  const isErrorEntry = x => !!(x && x.error);
   const validWallet = w => /^0x[a-f0-9]{40}$/.test(String(w || '').trim().toLowerCase());
 
   function purgeFailed() {
     const cache = load();
-    const failed = Object.keys(cache).filter(k => isErrorEntry(cache[k]));
-    for (const k of failed) delete cache[k];
-    if (failed.length) save(cache);
-    return failed.length;
+    let n = 0;
+    for (const k of Object.keys(cache)) {
+      if (isErrorEntry(cache[k])) { delete cache[k]; n++; }
+    }
+    if (n) save(cache);
+    return n;
   }
 
-  // Relay's current Get Requests API is v3. The wallet-specific filter is
-  // depositAddress (not q/search). v3 requires x-api-key authentication.
+  function getKey() {
+    let key = (localStorage.getItem(LS_KEY) || '').trim();
+    if (!key) {
+      key = (prompt('請貼上你的 Relay API Key（只保存在本機，不會寫入 GitHub）：') || '').trim();
+      if (!key) throw new Error('缺少 Relay API Key');
+      localStorage.setItem(LS_KEY, key);
+    }
+    return key;
+  }
+
   function installV3Fetch() {
     if (window.__YUAN_RELAY_V3_FETCH__ === true) return;
     const nativeFetch = window.fetch.bind(window);
@@ -26,16 +36,9 @@
       const url = typeof input === 'string' ? input : input?.url;
       if (!url || !url.includes('api.relay.link/requests/v2')) return nativeFetch(input, init);
 
-      let key = localStorage.getItem(LS_KEY) || '';
-      if (!key) {
-        key = prompt('請貼上你的 Relay API Key（只保存在本機，不會寫入 GitHub）：');
-        if (!key) throw new Error('缺少 Relay API Key');
-        localStorage.setItem(LS_KEY, key.trim());
-      }
-
       const old = new URL(url);
-      const wallet = old.searchParams.get('depositAddress') || '';
-      if (!wallet) throw new Error('Relay 查詢缺少 depositAddress');
+      const wallet = (old.searchParams.get('depositAddress') || '').trim();
+      if (!validWallet(wallet)) throw new Error('Relay 查詢缺少有效 depositAddress');
 
       const target = new URL('https://api.relay.link/requests/v3');
       target.searchParams.set('depositAddress', wallet);
@@ -44,27 +47,20 @@
       target.searchParams.set('sortDirection', old.searchParams.get('sortDirection') || 'desc');
 
       const headers = new Headers(init.headers || {});
-      headers.set('x-api-key', key.trim());
+      headers.set('x-api-key', getKey());
       headers.set('Accept', 'application/json');
 
-      // GitHub Pages CSP blocks direct api.relay.link requests in this app,
-      // so use the same public CORS proxy fallback already used by the engine.
-      const urls = [
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(target.toString())}`,
-        `https://corsproxy.io/?url=${encodeURIComponent(target.toString())}`
-      ];
-      let last;
-      for (const u of urls) {
-        try {
-          const r = await nativeFetch(u, { ...init, headers, cache: 'no-store' });
-          if (!r.ok) throw new Error(`Relay v3 HTTP ${r.status}`);
-          const text = (await r.text()).trim();
-          if (!text || text.startsWith('<')) throw new Error('Relay API returned HTML');
-          JSON.parse(text);
-          return new Response(text, { status: 200, headers: { 'Content-Type': 'application/json' } });
-        } catch (e) { last = e; }
+      // Use Relay directly so the required x-api-key header reaches Relay.
+      // Public CORS proxies cannot reliably forward this authentication header.
+      const r = await nativeFetch(target.toString(), { ...init, headers, cache: 'no-store', credentials: 'omit' });
+      const text = await r.text();
+      if (!r.ok) {
+        let detail = text;
+        try { detail = JSON.stringify(JSON.parse(text)); } catch {}
+        throw new Error(`Relay v3 HTTP ${r.status}${detail ? `：${detail.slice(0,180)}` : ''}`);
       }
-      throw last || new Error('Relay Requests v3 查詢失敗');
+      if (!text.trim()) throw new Error('Relay v3 回傳空白');
+      return new Response(text, { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
   }
 
@@ -74,13 +70,18 @@
     if (!btn || btn.dataset.fixInstalled === '1') return false;
     btn.dataset.fixInstalled = '1';
     purgeFailed();
+
     const original = btn.onclick;
     btn.onclick = async () => {
       const removed = purgeFailed();
       const p = document.getElementById('yeProgress');
       if (removed && p) p.textContent = `已解除 ${removed} 個失敗 Wallet，準備重新查詢…`;
-      try { if (typeof original === 'function') await original.call(btn); }
-      catch (e) { if (p) p.textContent = `查詢失敗：${e?.message || e}`; console.error('YUAN Relay scan error', e); }
+      try {
+        if (typeof original === 'function') await original.call(btn);
+      } catch (e) {
+        if (p) p.textContent = `查詢失敗：${e?.message || e}`;
+        console.error('YUAN Relay scan error', e);
+      }
       purgeFailed();
       if (typeof window.__YUAN_EXCHANGE_RENDER__ === 'function') window.__YUAN_EXCHANGE_RENDER__();
     };
@@ -99,7 +100,6 @@
         if (!validWallet(w)) return alert('Wallet 格式不正確。');
         const p = document.getElementById('yeProgress');
         if (p) p.textContent = `準備測試 ${wallet}…`;
-        // Limit the current scan context to the requested wallet for this test.
         const oldRows = window.__YUAN_CURRENT_ROWS__;
         window.__YUAN_CURRENT_ROWS__ = [{ 'Proxy Wallet': w, '帳號名稱': w }];
         const cache = load();
@@ -117,7 +117,8 @@
   }
 
   function boot() {
-    installV3Fetch(); purgeFailed();
+    installV3Fetch();
+    purgeFailed();
     if (!install()) setTimeout(install, 500);
     setTimeout(install, 1500);
   }
