@@ -5,6 +5,7 @@
   const load = () => { try { return JSON.parse(localStorage.getItem(LS_RELAY) || '{}'); } catch { return {}; } };
   const save = x => localStorage.setItem(LS_RELAY, JSON.stringify(x));
   const validWallet = w => /^0x[a-f0-9]{40}$/.test(String(w || '').trim().toLowerCase());
+  const short = v => !v ? '—' : (v.length > 20 ? v.slice(0,10) + '…' + v.slice(-8) : v);
 
   function purgeFailed() {
     const cache = load();
@@ -47,15 +48,67 @@
     catch { return {}; }
   }
 
+  function ensureTxPanel() {
+    let box = document.getElementById('yeResolvedTxBox');
+    if (box) return box;
+    const anchor = document.getElementById('yeProgress');
+    if (!anchor) return null;
+    box = document.createElement('div');
+    box.id = 'yeResolvedTxBox';
+    box.style.cssText = 'margin-top:10px;overflow:auto;max-height:430px;border:1px solid #d8e0e8;border-radius:9px;background:#fff';
+    box.innerHTML = '<div style="padding:10px;color:#657287;font-size:12px">鏈上交易明細尚未載入。</div>';
+    anchor.insertAdjacentElement('afterend', box);
+    return box;
+  }
+
+  function chainExplorer(chainId, hash) {
+    const base = ({1:'https://etherscan.io/tx/',10:'https://optimistic.etherscan.io/tx/',56:'https://bscscan.com/tx/',137:'https://polygonscan.com/tx/',8453:'https://basescan.org/tx/',42161:'https://arbiscan.io/tx/',43114:'https://snowtrace.io/tx/'})[Number(chainId)];
+    return base && hash ? base + encodeURIComponent(hash) : '';
+  }
+
+  function renderResolved(requests, labels, wallet) {
+    const box = ensureTxPanel();
+    if (!box) return { txCount: 0, knownCount: 0 };
+    const rows = [];
+    let knownCount = 0;
+    for (const req of requests) {
+      const rid = req?.id || req?.requestId || req?.data?.id || '';
+      const txs = Array.isArray(req?.resolvedTxs) ? req.resolvedTxs : [];
+      for (const tx of txs) {
+        const from = String(tx?.from || '').toLowerCase();
+        const to = String(tx?.to || '').toLowerCase();
+        const counterparties = [...new Set([from,to].filter(a => /^0x[a-f0-9]{40}$/.test(a) && a !== wallet))];
+        if (!counterparties.length) counterparties.push('');
+        for (const cp of counterparties) {
+          const lab = labels[cp] || null;
+          if (lab) knownCount++;
+          rows.push({ rid, hash: tx?.hash || '', chainId: tx?.chainId || '', side: tx?.side || '', from, to, cp, lab });
+        }
+      }
+    }
+    if (!rows.length) {
+      box.innerHTML = '<div style="padding:10px;color:#b45309;font-size:12px">Relay Request 有資料，但目前後端尚未解析出鏈上 TxHash / from / to。</div>';
+      return { txCount: 0, knownCount: 0 };
+    }
+    const html = rows.map(r => {
+      const url = chainExplorer(r.chainId, r.hash);
+      const label = r.lab ? `${r.lab.exchange || '未知'}${r.lab.region ? ' / '+r.lab.region : ''}` : '待標記';
+      return `<tr><td>${short(r.rid)}</td><td>${r.chainId || '—'}</td><td>${r.side || '—'}</td><td>${url ? `<a target="_blank" href="${url}">${short(r.hash)}</a>` : short(r.hash)}</td><td title="${r.from}">${short(r.from)}</td><td title="${r.to}">${short(r.to)}</td><td title="${r.cp}">${short(r.cp)}</td><td style="font-weight:700;color:${r.lab ? '#166534' : '#b45309'}">${label}</td></tr>`;
+    }).join('');
+    box.innerHTML = `<div style="padding:9px 10px;font-weight:700">Relay 鏈上交易明細：${rows.length} 筆｜已知交易所 ${knownCount} 筆</div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#edf2f7"><th>Relay</th><th>Chain</th><th>Side</th><th>TxHash</th><th>From</th><th>To</th><th>對手地址</th><th>標籤</th></tr></thead><tbody>${html}</tbody></table>`;
+    box.querySelectorAll('th,td').forEach(el => { el.style.padding='7px 8px'; el.style.borderBottom='1px solid #e5e7eb'; el.style.whiteSpace='nowrap'; el.style.textAlign='left'; });
+    return { txCount: rows.length, knownCount };
+  }
+
   async function testWallet(wallet, testButton) {
     const w = String(wallet || '').trim().toLowerCase();
     if (!validWallet(w)) throw new Error('Wallet 格式不正確。');
     const p = document.getElementById('yeProgress');
-    if (p) p.textContent = `正在透過 Vercel 查 Relay：${w}…`;
+    if (p) p.textContent = `正在透過 Vercel 查 Relay 並解析鏈上交易：${w}…`;
     if (testButton) testButton.disabled = true;
 
     try {
-      const url = `/api/relay?wallet=${encodeURIComponent(w)}&limit=50&includeChildRequests=true&_=${Date.now()}`;
+      const url = `/api/relay?wallet=${encodeURIComponent(w)}&limit=50&includeChildRequests=true&enrich=true&_=${Date.now()}`;
       const r = await fetch(url, { method: 'GET', cache: 'no-store' });
       const text = await r.text();
       let data;
@@ -81,13 +134,14 @@
         }
       }
 
+      const detail = renderResolved(requests, labels, w);
       const cache = load();
       cache[w] = { wallet: w, records, requests: requests.length, updatedAt: new Date().toISOString() };
       save(cache);
       window.__YUAN_CURRENT_ROWS__ = [{ 'Proxy Wallet': w, '帳號名稱': w }];
       if (typeof window.__YUAN_EXCHANGE_RENDER__ === 'function') window.__YUAN_EXCHANGE_RENDER__();
-      if (p) p.textContent = `完成：Relay 回傳 ${requests.length} 筆 Request｜命中 ${hits} 筆已知交易所｜Wallet ${w}`;
-      return { requests: requests.length, hits };
+      if (p) p.textContent = `完成：Relay ${requests.length} 筆 Request｜解析 ${detail.txCount} 筆鏈上交易｜交易所標籤 ${detail.knownCount} 筆｜Wallet ${w}`;
+      return { requests: requests.length, hits, ...detail };
     } catch (e) {
       console.error('YUAN direct Relay test error', e);
       if (p) p.textContent = `測試失敗：${e?.message || e}`;
@@ -103,6 +157,7 @@
     const btn = document.getElementById('yeScan');
     if (!btn || btn.dataset.fixInstalled === '1') return false;
     btn.dataset.fixInstalled = '1';
+    ensureTxPanel();
 
     const original = btn.onclick;
     btn.onclick = async () => {
@@ -137,5 +192,5 @@
     if (!install()) setTimeout(install, 500);
     setTimeout(install, 1500);
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
 })();
