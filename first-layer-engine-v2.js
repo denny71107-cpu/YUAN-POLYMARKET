@@ -1,5 +1,6 @@
 (()=>{'use strict';
 const DB='YUAN_FIRST_LAYER_DB_V2',VER=1,S={wallets:'wallets',transfers:'transfers'};
+const RELAY_API_BASE=location.hostname.endsWith('github.io')?'https://yuan-polymarket.vercel.app':'';
 const low=v=>String(v??'').trim().toLowerCase(),norm=v=>String(v??'').trim(),sleep=ms=>new Promise(r=>setTimeout(r,ms)),esc=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
 const openDB=()=>new Promise((resolve,reject)=>{const r=indexedDB.open(DB,VER);r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains(S.wallets))db.createObjectStore(S.wallets,{keyPath:'wallet'});if(!db.objectStoreNames.contains(S.transfers))db.createObjectStore(S.transfers,{keyPath:'_key'});};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
 const done=tx=>new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error)});
@@ -11,7 +12,7 @@ function sourceRows(){try{if(typeof currentRows!=='undefined'&&Array.isArray(cur
 function walletMap(){const m=new Map();for(const r of sourceRows()){const w=low(r['Proxy Wallet']);if(!/^0x[a-f0-9]{40}$/.test(w))continue;if(!m.has(w))m.set(w,{wallet:w,account:norm(r['帳號名稱']||r['暱稱']),regions:new Set(),tradeHashes:new Set()});if(r['地區'])m.get(w).regions.add(norm(r['地區']));const h=low(r['Transaction Hash']);if(h)m.get(w).tradeHashes.add(h)}for(const x of m.values()){x.tradeSig=[...x.tradeHashes].sort().join('|');x.region=[...x.regions].join(' | ')}return m}
 const transferKey=x=>[x.ChainId,x.TxHash,x.ProxyWallet,x.Counterparty,x.TokenContract,x.Direction,x.RawAmount,x.RequestID].map(norm).join('|').toLowerCase();
 function toDec(v){const s=String(v||'');try{return s.startsWith('0x')?BigInt(s).toString():s}catch{return s}}
-async function api(url){let r,t;try{r=await fetch(url,{cache:'no-store'});t=await r.text()}catch(e){throw Error(`FETCH/CORS｜${e?.message||e}`)}let j=null;try{j=JSON.parse(t)}catch{}if(!r.ok)throw Error(`HTTP ${r.status}｜${j?.error||''}｜${j?.detail||t.slice(0,180)}`);if(!j)throw Error(`NON-JSON｜${t.slice(0,180)}`);return j}
+async function api(path){let r,t;const url=RELAY_API_BASE+path;try{r=await fetch(url,{cache:'no-store'});t=await r.text()}catch(e){throw Error(`FETCH/CORS｜${e?.message||e}`)}let j=null;try{j=JSON.parse(t)}catch{}if(!r.ok)throw Error(`HTTP ${r.status}｜${j?.error||''}｜${j?.detail||t.slice(0,180)}`);if(!j)throw Error(`NON-JSON｜${t.slice(0,180)}`);return j}
 async function fetchRequests(wallet){return api(`/api/relay-first?wallet=${encodeURIComponent(wallet)}`)}
 async function fetchRequest(wallet,id){return api(`/api/relay-first?wallet=${encodeURIComponent(wallet)}&requestId=${encodeURIComponent(id)}`)}
 function csv(name,rows,headers){if(!rows.length){alert('沒有可下載的資料');return}const h=headers||Object.keys(rows[0]),txt=['\ufeff'+h.map(esc).join(','),...rows.map(r=>h.map(k=>esc(r[k])).join(','))].join('\r\n'),blob=new Blob([txt],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500)}
