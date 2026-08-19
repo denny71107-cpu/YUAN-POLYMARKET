@@ -13,7 +13,7 @@ async function run(force=false){
  const box=document.getElementById('yeResolvedTxBox');if(!box||running)return;
  const rows=[...box.querySelectorAll('tbody tr')];if(!rows.length)return;
  const sig=rows.map(tr=>tr.querySelectorAll('td')[7]?.querySelector('[data-copy]')?.dataset.copy||'').join('|');
- if(!force&&sig===lastSig&&rows.every(tr=>!/待 OKLink 驗證|送 OKLink|待標記|未辨識/.test(tr.querySelectorAll('td')[8]?.textContent||'')))return;
+ if(!force&&sig===lastSig)return;
  running=true;lastSig=sig;box.dataset.labelsRunning='1';const cache=load();let checked=0,exHit=0,protocolHit=0;
  try{
   for(let i=0;i<rows.length;i++){
@@ -36,6 +36,6 @@ async function run(force=false){
 window.__YUAN_RUN_OKLINK__=()=>run(true);window.__YUAN_RUN_LABELS__=()=>run(true);
 const obs=new MutationObserver(()=>setTimeout(()=>run(false),120));
 function attach(){const box=document.getElementById('yeResolvedTxBox');if(!box)return false;obs.observe(box,{childList:true,subtree:true});box.addEventListener('yuan-ready',()=>run(true));run(false);return true;}
-function boot(){if(!attach())setTimeout(boot,300);setInterval(()=>{const b=document.getElementById('yeResolvedTxBox');if(b&&!running&&/待 OKLink 驗證|待標記/.test(b.textContent))run(true)},1000)}
+function boot(){if(!attach())setTimeout(boot,300)}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
