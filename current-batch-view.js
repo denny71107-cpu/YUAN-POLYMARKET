@@ -1,0 +1,8 @@
+(()=>{'use strict';
+const low=v=>String(v||'').trim().toLowerCase();
+function current(){const rows=Array.isArray(window.__YUAN_CURRENT_ROWS__)?window.__YUAN_CURRENT_ROWS__:[];return new Set(rows.map(r=>low(r['Proxy Wallet'])).filter(w=>/^0x[a-f0-9]{40}$/.test(w)))}
+function walletFromRow(tr){const td=tr?.querySelectorAll('td')?.[1];if(!td)return'';const a=td.querySelector('a');const href=a?.getAttribute('href')||'';const m=href.match(/profile\/(0x[a-fA-F0-9]{40})/);if(m)return low(m[1]);const title=td.getAttribute('title')||'';const m2=title.match(/0x[a-fA-F0-9]{40}/);return m2?low(m2[0]):''}
+function apply(){const tb=document.getElementById('yeTable');if(!tb)return;const set=current();if(!set.size)return;let shown=0,total=0;for(const tr of tb.querySelectorAll('tr')){const w=walletFromRow(tr);if(!w)continue;total++;const yes=set.has(w);tr.hidden=!yes;if(yes)shown++}let note=document.getElementById('yeBatchStatus');if(!note){note=document.createElement('div');note.id='yeBatchStatus';note.style.cssText='margin:8px 0 0;font-size:12px;color:#166534;font-weight:700';const p=document.getElementById('yeProgress');p?.insertAdjacentElement('afterend',note)}if(note)note.textContent=`目前只顯示本次資料：${shown} 筆；舊批次仍保留但不混入畫面。`}
+function boot(){const obs=new MutationObserver(()=>apply());const start=()=>{const tb=document.getElementById('yeTable');if(tb){obs.observe(tb,{childList:true,subtree:true});apply()}else setTimeout(start,500)};start();setInterval(apply,1200)}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
+})();
