@@ -12,6 +12,28 @@
     return r.json();
   }
 
+  function paint(cell,lab){
+    cell.textContent=`${lab.exchange||'未知'}${lab.region?' / '+lab.region:''}`;
+    cell.style.color='#166534';
+    cell.style.cursor='pointer';
+    cell.title=`${lab.source?'來源：'+lab.source+'｜':''}點一下可修改交易所標籤`;
+  }
+
+  function enableManual(cell,address,labels){
+    cell.style.cursor='pointer';
+    cell.title='點一下手動指定交易所；儲存後此裝置會永久記住';
+    cell.onclick=()=>{
+      const old=labels[address]?.exchange||'';
+      const exchange=prompt('輸入交易所名稱（例如 MaiCoin、BitoPro、Binance、OKX、Coinbase）',old);
+      if(exchange===null)return;
+      const name=exchange.trim(); if(!name)return;
+      const tw=/^(maicoin|max|bitopro)$/i.test(name);
+      labels[address]={exchange:name,region:tw?'台灣':'海外',tags:'人工確認',source:'manual'};
+      save(labels); paint(cell,labels[address]);
+      document.querySelectorAll(`[data-yuan-address="${address}"]`).forEach(x=>paint(x,labels[address]));
+    };
+  }
+
   async function run(){
     const box=document.getElementById('yeResolvedTxBox');
     if(!box||box.dataset.labelsRunning==='1')return;
@@ -26,9 +48,8 @@
       const cp=(td[7].getAttribute('title')||td[7].textContent||'').trim().toLowerCase();
       const labelCell=td[8];
       if(!/^0x[a-f0-9]{40}$/.test(cp))continue;
-      if(labels[cp]){
-        const lab=labels[cp]; labelCell.textContent=`${lab.exchange||'未知'}${lab.region?' / '+lab.region:''}`; labelCell.style.color='#166534'; found++; continue;
-      }
+      labelCell.dataset.yuanAddress=cp;
+      if(labels[cp]){paint(labelCell,labels[cp]);found++;enableManual(labelCell,cp,labels);continue;}
       labelCell.textContent='自動辨識中…'; labelCell.style.color='#64748b';
       try{
         const j=await lookup(cp,chainId); checked++;
@@ -36,16 +57,17 @@
         externalProvider=externalProvider||Boolean(j?.providers?.walletlabels||j?.providers?.etherscan);
         if(j?.found&&j?.label){
           labels[cp]={exchange:j.label.exchange||'未知',region:j.label.region||'',tags:j.label.tags||'',source:j.label.source||'api'}; save(labels);
-          labelCell.textContent=`${labels[cp].exchange}${labels[cp].region?' / '+labels[cp].region:''}`; labelCell.style.color='#166534'; labelCell.title=`來源：${j.label.source||'未知'}${j.label.tags?'｜'+j.label.tags:''}`; found++;
+          paint(labelCell,labels[cp]); labelCell.title=`來源：${j.label.source||'未知'}${j.label.tags?'｜'+j.label.tags:''}｜點一下可修改`; found++;
         } else {
-          labelCell.textContent='待標記'; labelCell.style.color='#b45309';
+          labelCell.textContent='待標記（點我）'; labelCell.style.color='#b45309';
         }
-      }catch{labelCell.textContent='待標記';labelCell.style.color='#b45309';}
+      }catch{labelCell.textContent='待標記（點我）';labelCell.style.color='#b45309';}
+      enableManual(labelCell,cp,labels);
       await sleep(120);
     }
     const head=box.firstElementChild;
     if(head){
-      const mode=externalProvider?'公開標籤＋外部 API':(publicProvider?'公開區塊鏈瀏覽器':'僅本機標籤');
+      const mode=externalProvider?'公開標籤＋外部 API':(publicProvider?'公開區塊鏈瀏覽器＋人工地址庫':'人工地址庫');
       const suffix=`｜自動辨識 ${checked} 個地址｜命中 ${found} 筆｜來源：${mode}`;
       head.textContent=head.textContent.replace(/｜自動(?:標記|辨識).*$/,'')+suffix;
     }
