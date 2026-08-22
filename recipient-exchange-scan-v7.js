@@ -1,7 +1,7 @@
 (()=>{'use strict';
 const DB='YUAN_FIRST_LAYER_DB_V2',STORE='transfers',VER=3,CACHE='YUAN_COUNTERPARTY_EXCHANGE_SCAN_V7',ADDR='YUAN_EXCHANGE_ADDRESS_HISTORY_V2',REVIEWED='YUAN_EXCHANGE_REVIEWED_V1';
 const API=location.hostname.endsWith('github.io')?'https://yuan-polymarket.vercel.app':'';
-const low=v=>String(v??'').trim().toLowerCase(),short=v=>{v=String(v??'');return v.length>20?v.slice(0,8)+'…'+v.slice(-6):v||'—'},esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const low=v=>String(v??'').trim().toLowerCase(),short=v=>{v=String(v??'');return v.length>20?v.slice(0,8)+'…'+v.slice(-6):v||'—'},esc=v=>String(v??'').replace(/[&<>\"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[m]));
 const load=(k,d={})=>{try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d))}catch{return d}},save=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
 let cache=load(CACHE),addrCache=load(ADDR),reviewed=load(REVIEWED),running=false,view='pending';
 const key=r=>[low(r.exchange),low(r.counterparty||r.exchangeAddress),low(r.txHash)].join('|');
