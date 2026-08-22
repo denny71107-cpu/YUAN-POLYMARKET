@@ -35,44 +35,41 @@ async function getTx(chainId, hash) {
   } catch { return null; }
 }
 
+function rowsFrom(data){if(Array.isArray(data?.requests))return data.requests;if(Array.isArray(data?.data))return data.data;if(Array.isArray(data))return data;return[];}
+function chainFromTxs(row,side){const list=row?.data?.[side]||row?.[side]||[];return Number(list?.[0]?.chainId||0)||0;}
+function txHashes(row,side){const list=row?.data?.[side]||row?.[side]||[];return Array.isArray(list)?list.map(x=>typeof x==='string'?x:(x?.txHash||x?.hash)).filter(Boolean):[];}
+function routeChain(row,side){const r=row?.data?.route||{},p=r.actual?.[side]||r.quoted?.[side]||{};return Number(p?.inputCurrency?.currency?.chainId||p?.outputCurrency?.currency?.chainId||0)||0;}
+
 export default async function handler(req,res){
   if(req.method!=='GET'){res.setHeader('Allow','GET');return res.status(405).json({error:'Method not allowed'});}
   const wallet=String(req.query?.wallet||'').trim().toLowerCase();
   if(!/^0x[a-f0-9]{40}$/.test(wallet))return res.status(400).json({error:'Invalid wallet address'});
+  if(!process.env.RELAY_API_KEY)return res.status(500).json({error:'RELAY_API_KEY is not configured'});
   const limit=Math.min(Math.max(Number(req.query?.limit||50),1),50);
   const includeChildRequests=String(req.query?.includeChildRequests||'true')!=='false';
   const enrich=String(req.query?.enrich||'true')!=='false';
-  const base=new URLSearchParams({sortBy:'updatedAt',sortDirection:'desc',limit:String(limit)}); if(includeChildRequests)base.set('includeChildRequests','true');
-  const endpoints=[
-    `https://api.relay.link/requests/v2?${new URLSearchParams({...Object.fromEntries(base),user:wallet})}`,
-    `https://api.relay.link/requests/v2?${new URLSearchParams({...Object.fromEntries(base),depositAddress:wallet})}`
-  ];
+  const q=new URLSearchParams({term:wallet,sortBy:'updatedAt',sortDirection:'desc',limit:String(limit)}); if(includeChildRequests)q.set('includeChildRequests','true');
   try{
-    const headers={Accept:'application/json'}; if(process.env.RELAY_API_KEY)headers['x-api-key']=process.env.RELAY_API_KEY;
-    const all=[],seen=new Set();
-    for(const url of endpoints){
-      const r=await fetch(url,{method:'GET',headers,cache:'no-store'}),text=await r.text();
-      if(!r.ok)return res.status(r.status).json({error:`Relay HTTP ${r.status}`,detail:text.slice(0,1000)});
-      let data={}; try{data=text?JSON.parse(text):{};}catch{return res.status(502).json({error:'Relay returned non-JSON',detail:text.slice(0,500)});}
-      let rows=[]; if(Array.isArray(data))rows=data; else if(Array.isArray(data.requests))rows=data.requests; else if(data.requests&&typeof data.requests==='object')rows=[data.requests]; else if(Array.isArray(data.data))rows=data.data; else if(data.id||data.requestId)rows=[data];
-      for(const row of rows){const id=String(row?.id||row?.requestId||row?.data?.id||''),key=id||JSON.stringify(row);if(!seen.has(key)){seen.add(key);all.push(row);}}
-    }
-    all.sort((a,b)=>String(b?.updatedAt||b?.createdAt||'').localeCompare(String(a?.updatedAt||a?.createdAt||'')));
-    const selected=all.slice(0,limit);
+    const headers={Accept:'application/json','x-api-key':process.env.RELAY_API_KEY};
+    const r=await fetch(`https://api.relay.link/requests/v3?${q}`,{method:'GET',headers,cache:'no-store'}),text=await r.text();
+    if(!r.ok)return res.status(r.status).json({error:`Relay HTTP ${r.status}`,detail:text.slice(0,1000)});
+    let data={}; try{data=text?JSON.parse(text):{};}catch{return res.status(502).json({error:'Relay returned non-JSON',detail:text.slice(0,500)});}
+    const selected=rowsFrom(data).slice(0,limit);
     if(enrich&&selected.length){
       const enriched=await Promise.all(selected.map(async row=>{
         const id=String(row?.id||row?.requestId||row?.data?.id||''); if(!id)return row;
         try{
-          const sr=await fetch(`https://api.relay.link/intents/status/v3?requestId=${encodeURIComponent(id)}`,{method:'GET',headers,cache:'no-store'}); if(!sr.ok)return row;
-          const statusData=await sr.json(),resolvedTxs=[];
-          for(const h of(statusData?.inTxHashes||[]).slice(0,4)){const tx=await getTx(statusData?.originChainId,h);if(tx)resolvedTxs.push({...tx,side:'origin'});}
-          for(const h of(statusData?.txHashes||[]).slice(0,4)){const tx=await getTx(statusData?.destinationChainId,h);if(tx)resolvedTxs.push({...tx,side:'destination'});}
-          return {...row,executionStatus:statusData,resolvedTxs};
+          const originChainId=chainFromTxs(row,'inTxs')||routeChain(row,'origin');
+          const destinationChainId=chainFromTxs(row,'outTxs')||routeChain(row,'destination');
+          const resolvedTxs=[];
+          for(const h of txHashes(row,'inTxs').slice(0,4)){const tx=await getTx(originChainId,h);if(tx)resolvedTxs.push({...tx,side:'origin'});}
+          for(const h of txHashes(row,'outTxs').slice(0,4)){const tx=await getTx(destinationChainId,h);if(tx)resolvedTxs.push({...tx,side:'destination'});}
+          return {...row,originChainId,destinationChainId,resolvedTxs};
         }catch{return row;}
       }));
       selected.splice(0,selected.length,...enriched);
     }
     res.setHeader('Cache-Control','no-store, max-age=0'); res.setHeader('Access-Control-Allow-Origin','*');
-    return res.status(200).json({requests:selected,count:selected.length,queried:{user:wallet,depositAddress:wallet},enriched:Boolean(enrich),rpcChains:Object.keys(RPC).map(Number),transferLogs:true});
+    return res.status(200).json({requests:selected,count:selected.length,queried:{term:wallet},apiVersion:'v3',enriched:Boolean(enrich),rpcChains:Object.keys(RPC).map(Number),transferLogs:true,continuation:data?.continuation||null,total:data?.total});
   }catch(error){return res.status(502).json({error:'Relay upstream unavailable',detail:error?.message||String(error)});}
 }
