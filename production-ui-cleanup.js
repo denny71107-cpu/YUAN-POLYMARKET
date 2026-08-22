@@ -8,6 +8,7 @@ const unwanted=[
 function clean(){
   for(const id of ['yreTargetDiag','yflTargetDiag'])document.getElementById(id)?.remove();
   for(const el of document.querySelectorAll('p,.sub,.progress')){
+    if(el.id==='yflMsg')continue;
     const t=(el.textContent||'').trim();
     if(unwanted.some(x=>t.includes(x))||t.includes('0x36339')||t.includes('第一層 DB 診斷'))el.remove();
   }
@@ -17,5 +18,5 @@ function clean(){
   }
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',clean);else clean();
-new MutationObserver(clean).observe(document.documentElement,{childList:true,subtree:true});
+// 僅清理舊內容，不持續監聽正式功能 DOM，避免誤刪按鈕／進度列。
 })();
