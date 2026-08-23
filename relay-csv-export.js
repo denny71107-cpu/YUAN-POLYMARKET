@@ -1,39 +1,14 @@
 (()=>{'use strict';
-const DB='YUAN_FIRST_LAYER_DB_V2',VER=3,STORE='transfers';
-const low=v=>String(v??'').trim().toLowerCase();
-const openDB=()=>new Promise((ok,no)=>{const r=indexedDB.open(DB,VER);r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains('wallets'))d.createObjectStore('wallets',{keyPath:'wallet'});if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'_key'})};r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
-async function allTransfers(){const db=await openDB();return new Promise((ok,no)=>{const r=db.transaction(STORE,'readonly').objectStore(STORE).getAll();r.onsuccess=()=>ok(r.result||[]);r.onerror=()=>no(r.error)})}
+const BASE=location.hostname.endsWith('github.io')?'https://yuan-polymarket.vercel.app':'';
+const low=v=>String(v??'').trim().toLowerCase(),norm=v=>String(v??'').trim();
+const isAddr=v=>/^0x[a-f0-9]{40}$/.test(low(v));
+function sourceRows(){try{if(typeof currentRows!=='undefined'&&Array.isArray(currentRows)){window.__YUAN_CURRENT_ROWS__=currentRows;return currentRows}}catch{}return Array.isArray(window.__YUAN_CURRENT_ROWS__)?window.__YUAN_CURRENT_ROWS__:[]}
+function wallets(){const m=new Map();for(const r of sourceRows()){const w=low(r?.['Proxy Wallet']||r?.ProxyWallet||r?.wallet||r?.Wallet||r?.proxyWallet);if(!isAddr(w))continue;if(!m.has(w))m.set(w,{wallet:w,account:norm(r?.['帳號名稱']||r?.['暱稱']||r?.['名稱']),region:norm(r?.['地區'])})}return[...m.values()]}
+async function api(wallet){const r=await fetch(`${BASE}/api/relay-first?wallet=${encodeURIComponent(wallet)}`,{cache:'no-store'}),t=await r.text();let j;try{j=JSON.parse(t)}catch{}if(!r.ok)throw Error(`HTTP ${r.status} ${j?.detail||j?.error||t.slice(0,160)}`);return Array.isArray(j?.requests)?j.requests:[]}
+function direction(wallet,sender,recipient){sender=low(sender);recipient=low(recipient);if(recipient===wallet&&sender!==wallet)return'IN';if(sender===wallet&&recipient!==wallet)return'OUT';if(sender===wallet&&recipient===wallet)return'SELF';return'UNKNOWN'}
 const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
 function download(txt,name){const b=new Blob(['\ufeff'+txt],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
-async function exportRelayCsv(){
-  try{
-    const rows=(await allTransfers()).filter(r=>/^0x[a-f0-9]{40}$/.test(low(r.Counterparty)));
-    if(!rows.length)return alert('目前沒有可匯出的 Relay 對手方資料。請先執行「更新／新增雙向第一層」。');
-    const hs=['RelayAddress','Counterparty','Direction','Token','Amount','Time','TxHash'];
-    const out=rows.map(r=>({
-      RelayAddress:r.ProxyWallet||'',
-      Counterparty:low(r.Counterparty),
-      Direction:r.Direction||'',
-      Token:r.OutputToken||r.InputToken||'',
-      Amount:r.OutputAmount||r.InputAmount||'',
-      Time:r.UpdatedAt||'',
-      TxHash:r.FillTxHash||r.DepositTxHash||''
-    }));
-    const txt=[hs.join(','),...out.map(r=>hs.map(h=>q(r[h])).join(','))].join('\r\n');
-    const unique=new Set(out.map(r=>r.Counterparty));
-    download(txt,`YUAN_Relay_待Console調閱_${new Date().toISOString().slice(0,10)}.csv`);
-    const m=document.getElementById('yrcMsg');if(m)m.textContent=`✅ 已輸出 Relay CSV｜交易 ${out.length}｜唯一 Counterparty ${unique.size}`;
-  }catch(e){alert('Relay CSV 匯出失敗：'+(e?.message||e));}
-}
-function ui(){
-  if(document.getElementById('yrcExport'))return;
-  const anchor=document.getElementById('yuanRecipientExchange')||document.getElementById('yuanFirstLayerCard');
-  if(!anchor)return setTimeout(ui,300);
-  const box=document.createElement('div');box.id='yuanRelayCsvExport';box.className='card';
-  box.innerHTML=`<h2>📤 Relay → Console 調閱匯出</h2><p class="sub">直接從 Relay 第一層資料輸出 Counterparty CSV，不做交易所猜測。這份 CSV 專門交給 OKLink Console Scanner 調閱。</p><button id="yrcExport">下載 Relay 待 Console 調閱 CSV</button><div id="yrcMsg" class="progress" style="margin-top:10px">等待操作。</div>`;
-  anchor.parentNode.insertBefore(box,anchor.nextSibling);
-  document.getElementById('yrcExport').onclick=exportRelayCsv;
-}
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ui);else ui();
-window.__YUAN_RELAY_CSV__={exportRelayCsv};
+async function exportRelayCsv(){const m=document.getElementById('yrcMsg');try{const ws=wallets();if(!ws.length)return alert('目前成交資料找不到 Proxy Wallet。請先抓城市成交紀錄。');let out=[],fail=0;for(let i=0;i<ws.length;i++){const x=ws[i];if(m)m.textContent=`Relay 查詢 ${i+1}/${ws.length}｜${x.wallet.slice(0,8)}…｜已收 ${out.length}`;try{const reqs=await api(x.wallet);for(const d of reqs){const sender=low(d.sender),recipient=low(d.recipient),dir=direction(x.wallet,sender,recipient);if(dir==='SELF'||dir==='UNKNOWN')continue;const cp=dir==='IN'?sender:recipient;if(!isAddr(cp))continue;out.push({RelayAddress:x.wallet,Counterparty:cp,Direction:dir,Token:norm(d.outputToken||d.inputToken),Amount:norm(d.outputAmount||d.inputAmount),Time:norm(d.updatedAt),TxHash:low((d.outTxHashes||[])[0]||(d.inTxHashes||[])[0]),RequestID:low(d.id||d.requestId),Region:x.region,Account:x.account})}}catch(e){fail++;console.warn('Relay wallet failed',x.wallet,e)}}if(!out.length)return alert('Relay 查詢完成，但沒有可匯出的 IN/OUT 對手方。');const hs=['RelayAddress','Counterparty','Direction','Token','Amount','Time','TxHash','RequestID','Region','Account'];const txt=[hs.join(','),...out.map(r=>hs.map(h=>q(r[h])).join(','))].join('\r\n');const unique=new Set(out.map(r=>r.Counterparty));download(txt,`YUAN_Relay_待Console調閱_${new Date().toISOString().slice(0,10)}.csv`);if(m)m.textContent=`✅ Relay CSV 完成｜Wallet ${ws.length}｜交易 ${out.length}｜唯一 Counterparty ${unique.size}｜失敗 ${fail}`;window.__YUAN_LAST_RELAY_CSV__=out}catch(e){alert('Relay CSV 匯出失敗：'+(e?.message||e));if(m)m.textContent='❌ '+(e?.message||e)}}
+function ui(){if(document.getElementById('yrcExport'))return;const anchor=document.getElementById('yuanFirstLayerCard')||document.querySelector('.wrap .card');if(!anchor)return setTimeout(ui,300);const box=document.createElement('div');box.id='yuanRelayCsvExport';box.className='card';box.innerHTML=`<h2>📤 城市成交 → Relay CSV</h2><p class="sub">直接讀目前城市成交紀錄的 Proxy Wallet，現查 Relay 並輸出完整 IN/OUT CSV；不依賴 Relay 庫存資料庫。</p><button id="yrcExport">直接產生 Relay CSV</button><div id="yrcMsg" class="progress" style="margin-top:10px">等待操作。</div>`;anchor.parentNode.insertBefore(box,anchor.nextSibling);document.getElementById('yrcExport').onclick=exportRelayCsv}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ui);else ui();window.__YUAN_RELAY_CSV__={exportRelayCsv};
 })();
