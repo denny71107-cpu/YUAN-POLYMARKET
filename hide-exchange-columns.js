@@ -28,7 +28,8 @@ function hideCards(){
     '資料與備份',
     '交易所辨識測試',
     'Console 已調閱資料庫',
-    '雙向對手方／交易所調閱中心'
+    '雙向對手方／交易所調閱中心',
+    'Relay 雙向資金第一層追查'
   ];
 
   for(const h of document.querySelectorAll('h1,h2,h3')){
