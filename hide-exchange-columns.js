@@ -5,6 +5,7 @@ function apply(){
   const style=document.createElement('style');
   style.id=STYLE_ID;
   style.textContent=`
+/* 暫時隱藏不使用的交易欄位：Chain、幣種、金額、時間、交易所地址、TxHash */
 #yuanRecipientExchange .mini th:nth-child(5),
 #yuanRecipientExchange .mini td:nth-child(5),
 #yuanRecipientExchange .mini th:nth-child(6),
@@ -19,6 +20,21 @@ function apply(){
 #yuanRecipientExchange .mini td:nth-child(10){display:none!important;}
 `;
   document.head.appendChild(style);
+
+  const hideCardsByTitle=[
+    '💾 資料與備份',
+    '🧪 交易所辨識測試',
+    '🗄️ Console 已調閱資料庫',
+    '🏦 雙向對手方／交易所調閱中心'
+  ];
+
+  for(const h of document.querySelectorAll('h1,h2,h3')){
+    const title=(h.textContent||'').replace(/\s+/g,'').trim();
+    if(hideCardsByTitle.some(x=>title.includes(x.replace(/\s+/g,'')))){
+      const card=h.closest('.card');
+      if(card)card.style.display='none';
+    }
+  }
 }
 apply();
 new MutationObserver(apply).observe(document.documentElement,{childList:true,subtree:true});
