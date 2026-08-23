@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "YUAN OKLink Batch Scanner",
+  "version": "1.0.0",
+  "description": "Batch scan Counterparty addresses on OKLink Token Transfers and persist results locally.",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["https://www.oklink.com/*"],
+  "background": {"service_worker": "background.js"},
+  "action": {"default_popup": "popup.html"},
+  "content_scripts": [{
+    "matches": ["https://www.oklink.com/*/address/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }]
+}
