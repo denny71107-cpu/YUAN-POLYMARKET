@@ -1,16 +1,16 @@
-/* YUAN Relay CSV -> Exchange Scanner v3
+/* YUAN Relay CSV -> Exchange Scanner v3.1
  * Imported CSV is the ONLY source of Relay/Counterparty addresses.
- * A new import ALWAYS clears previous v3 results, so stale localStorage results cannot appear as current results.
+ * Every run clears previous results/cache. Fixed: rows is initialized before render().
  */
 (()=>{
 'use strict';
 const API='https://yuan-polymarket.vercel.app/api/exchange-history';
-const KEY='YUAN_RELAY_EXCHANGE_RESULTS_V3', CACHE='YUAN_RELAY_EXCHANGE_CACHE_V3';
+const KEY='YUAN_RELAY_EXCHANGE_RESULTS_V3_1', CACHE='YUAN_RELAY_EXCHANGE_CACHE_V3_1';
 const $=s=>document.querySelector(s);
 const esc=v=>String(v??'').replace(/[&<>\"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[m]));
 const save=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
 const address=v=>{const m=String(v??'').match(/0x[a-fA-F0-9]{40}/);return m?m[0].toLowerCase():''};
-let results=[],cache={};
+let results=[],cache={},rows=[];
 function parseCSV(t){t=t.replace(/^\uFEFF/,'');let a=[],r=[],c='',q=false;for(let i=0;i<t.length;i++){let x=t[i],n=t[i+1];if(x==='\"'){if(q&&n==='\"'){c+='\"';i++}else q=!q}else if(x===','&&!q){r.push(c);c=''}else if((x==='\n'||x==='\r')&&!q){if(x==='\r'&&n==='\n')i++;r.push(c);c='';if(r.some(v=>v!==''))a.push(r);r=[]}else c+=x}if(c!==''||r.length){r.push(c);a.push(r)}if(!a.length)return[];const h=a[0].map(x=>x.trim());return a.slice(1).map(v=>Object.fromEntries(h.map((k,i)=>[k,v[i]??''])))}
 function pick(r,n){for(const k of n)if(String(r[k]??'').trim())return String(r[k]).trim();return''}
 function download(t,n,type){const a=document.createElement('a'),u=URL.createObjectURL(new Blob([t],{type}));a.href=u;a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
@@ -29,6 +29,6 @@ for(const a of cpSet){const src=rows.find(r=>rowBase(r).Counterparty===a);const 
 $('#yreStatus').textContent=`完成｜完全依照本次匯入 CSV｜CSV ${rows.length} 筆｜Relay ${relaySet.size} 個｜Counterparty ${cpSet.size} 個｜本次輸出 ${results.length} 筆`;
 }catch(e){console.error(e);$('#yreStatus').textContent='❌ '+(e.message||e)}finally{btn.disabled=false;render()}}
 function out(){if(!results.length)return alert('目前沒有本次反查結果');const h=['RelayAddress','Counterparty','Direction','Status','Exchange','ExchangeTag','MatchedAddress','MatchType','ChainId','Token','Amount','Time','TxHash','Source','CheckedAt'],q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';download(['\ufeff'+h.join(','),...results.map(r=>h.map(k=>q(r[k])).join(','))].join('\r\n'),`YUAN_Relay_交易所反查_${new Date().toISOString().slice(0,10)}.csv`,'text/csv;charset=utf-8')}
-function ui(){if($('#yreStandalone'))return;const d=document.createElement('div');d.id='yreStandalone';d.style='position:fixed;right:16px;bottom:16px;width:min(900px,calc(100vw - 32px));max-height:80vh;overflow:auto;z-index:2147483647;background:#fff;color:#172033;border:2px solid #155e9a;border-radius:12px;padding:15px;box-shadow:0 10px 35px #0005;font:14px Segoe UI,Microsoft JhengHei,sans-serif';d.innerHTML=`<div style="display:flex;justify-content:space-between"><b style="font-size:18px">🔎 Relay CSV → 交易所反查 v3</b><button id="yreX" style="width:auto;background:#64748b;color:#fff;border:0;border-radius:6px;padding:4px 9px">×</button></div><div style="margin:8px 0;color:#657287">只使用本次匯入 CSV；每次開始反查前會清除上一批結果與快取，避免舊資料混入。</div><input id="yreFile" type="file" accept=".csv,text/csv" style="width:100%;padding:7px"><div style="display:flex;gap:8px;margin-top:8px"><button id="yreStart" style="flex:1;background:#155e9a;color:#fff;border:0;border-radius:7px;padding:9px;font-weight:700">開始交易所反查</button><button id="yreOut" style="flex:1;background:#4b5563;color:#fff;border:0;border-radius:7px;padding:9px">下載本次完整反查 CSV</button></div><div id="yreStatus" style="margin:8px 0;color:#657287"></div><div style="overflow:auto;max-height:320px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th>Relay</th><th>Counterparty</th><th>類型</th><th>狀態</th><th>交易所</th><th>Tag</th><th>命中地址</th></tr></thead><tbody id="yreRows"></tbody></table></div>`;document.body.appendChild(d);$('#yreX').onclick=()=>d.remove();$('#yreStart').onclick=start;$('#yreOut').onclick=out;render()}
-ui();console.log('✅ YUAN Relay CSV → 交易所反查 v3 已載入：每批匯入都會清除舊結果。');
+function ui(){if($('#yreStandalone'))return;const d=document.createElement('div');d.id='yreStandalone';d.style='position:fixed;right:16px;bottom:16px;width:min(900px,calc(100vw - 32px));max-height:80vh;overflow:auto;z-index:2147483647;background:#fff;color:#172033;border:2px solid #155e9a;border-radius:12px;padding:15px;box-shadow:0 10px 35px #0005;font:14px Segoe UI,Microsoft JhengHei,sans-serif';d.innerHTML=`<div style="display:flex;justify-content:space-between"><b style="font-size:18px">🔎 Relay CSV → 交易所反查 v3.1</b><button id="yreX" style="width:auto;background:#64748b;color:#fff;border:0;border-radius:6px;padding:4px 9px">×</button></div><div style="margin:8px 0;color:#657287">只使用本次匯入 CSV；每次開始反查前會清除上一批結果與快取。</div><input id="yreFile" type="file" accept=".csv,text/csv" style="width:100%;padding:7px"><div style="display:flex;gap:8px;margin-top:8px"><button id="yreStart" style="flex:1;background:#155e9a;color:#fff;border:0;border-radius:7px;padding:9px;font-weight:700">開始交易所反查</button><button id="yreOut" style="flex:1;background:#4b5563;color:#fff;border:0;border-radius:7px;padding:9px">下載本次完整反查 CSV</button></div><div id="yreStatus" style="margin:8px 0;color:#657287"></div><div style="overflow:auto;max-height:320px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th>Relay</th><th>Counterparty</th><th>類型</th><th>狀態</th><th>交易所</th><th>Tag</th><th>命中地址</th></tr></thead><tbody id="yreRows"></tbody></table></div>`;document.body.appendChild(d);$('#yreX').onclick=()=>d.remove();$('#yreStart').onclick=start;$('#yreOut').onclick=out;render()}
+ui();console.log('✅ YUAN Relay CSV → 交易所反查 v3.1 已載入：rows 已初始化。');
 })();
