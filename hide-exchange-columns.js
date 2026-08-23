@@ -1,7 +1,8 @@
 (()=>{'use strict';
 const STYLE_ID='yuan-hide-exchange-columns';
-function apply(){
-  if(document.getElementById(STYLE_ID))return;
+
+function addStyle(){
+  if(document.getElementById(STYLE_ID)) return;
   const style=document.createElement('style');
   style.id=STYLE_ID;
   style.textContent=`
@@ -20,22 +21,30 @@ function apply(){
 #yuanRecipientExchange .mini td:nth-child(10){display:none!important;}
 `;
   document.head.appendChild(style);
+}
 
-  const hideCardsByTitle=[
-    '💾 資料與備份',
-    '🧪 交易所辨識測試',
-    '🗄️ Console 已調閱資料庫',
-    '🏦 雙向對手方／交易所調閱中心'
+function hideCards(){
+  const hideTitles=[
+    '資料與備份',
+    '交易所辨識測試',
+    'Console 已調閱資料庫',
+    '雙向對手方／交易所調閱中心'
   ];
 
   for(const h of document.querySelectorAll('h1,h2,h3')){
-    const title=(h.textContent||'').replace(/\s+/g,'').trim();
-    if(hideCardsByTitle.some(x=>title.includes(x.replace(/\s+/g,'')))){
+    const title=(h.textContent||'').replace(/[\s\uFEFF]/g,'').trim();
+    if(hideTitles.some(x=>title.includes(x.replace(/[\s\uFEFF]/g,'')))){
       const card=h.closest('.card');
-      if(card)card.style.display='none';
+      if(card) card.style.display='none';
     }
   }
 }
+
+function apply(){
+  addStyle();
+  hideCards();
+}
+
 apply();
 new MutationObserver(apply).observe(document.documentElement,{childList:true,subtree:true});
 })();
